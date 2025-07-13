@@ -5,6 +5,8 @@ _addon.version = "0.0.1"
 
 local texts = require('texts')
 local packets = require('packets')
+local dialog = require('dialog')
+local bit = require('bit')
 local ItemRes = require('resources').items
 require('sets')
 
@@ -83,7 +85,9 @@ local LimbusBuddy = {
     ["CurrentPoints"] = 0,
     ["RemainingWeeklyCap"] = 0,
     ["ZoneCap"] = 0,
-    ["StartTime"] = os.clock()
+    ["StartTime"] = os.clock(),
+    ["TemenosMessageId"] = 0,
+    ["ApollyonMessageId"] = 0,
 }
 
 local Constants = {
@@ -158,13 +162,38 @@ Remaining Weekly Cap: \cs(79, 209, 173)${RemainingWeeklyCap}\cs(255, 255, 255)]]
             9997,
             9998
         }
-    }
+    },
+    ["TemenosMessageHex"] = "C1E3F1F5E9F2E5E4A0D4E5EDE5EEEFF3A0D5EEE9F4F3BAA08A80AE87D2E5EDE1E9EEE9EEE7A0D4E5EDE5EEEFF3A0D5EEE9F4F3BAA08A81AE87D4EFF4E1ECA0D4E5EDE5EEEFF3A0D5EEE9F4F3BAA08A82AF8A83AEFFB18087",
+    ["ApollyonMessageHex"] = "C1E3F1F5E9F2E5E4A0C1F0EFECECF9EFEEA0D5EEE9F4F3BAA08A80AE87D2E5EDE1E9EEE9EEE7A0C1F0EFECECF9EFEEA0D5EEE9F4F3BAA08A81AE87D4EFF4E1ECA0C1F0EFECECF9EFEEA0D5EEE9F4F3BAA08A82AF8A83AEFFB18087"
 }
 
+function LimbusBuddy:AcquireMessageIds()
+    local temenosDialogDat = dialog.open_dat_by_zone_id(Constants.TemenosZoneId, 'english')
+    local apollyonDialogDat = dialog.open_dat_by_zone_id(Constants.ApollyonZoneId, 'english')
+
+    local temenosMessageId = table.it(dialog.get_ids_matching_entry(temenosDialogDat, Constants.TemenosMessageHex:parse_hex()))()
+    local apollyonMessageId = table.it(dialog.get_ids_matching_entry(apollyonDialogDat, Constants.ApollyonMessageHex:parse_hex()))()
+
+    self["TemenosMessageId"] = temenosMessageId
+    self["ApollyonMessageId"] = apollyonMessageId
+
+    temenosDialogDat:close()
+    apollyonDialogDat:close()
+end
+
 function LimbusBuddy:HandleBarUpdate(data)
+    local zoneId = windower.ffxi.get_info().zone
+
+    if(S{Constants.TemenosZoneId, Constants.ApollyonZoneId}:contains(zoneId) == false)then
+        return
+    end
+
     local packet = packets.parse('incoming', data)
 
     local zoneStr = packet["Bar String 1"]
+
+    if(not zoneStr)then return end
+
     local splitZoneStr = zoneStr:split('_')
 
     self["TextDisplay"]["Zone"] = splitZoneStr[1] or "Unknown"
@@ -182,9 +211,15 @@ function LimbusBuddy:HandleBarUpdate(data)
 end
 
 function LimbusBuddy:HandleRestingMessageUpdate(data)
+    local zoneId = windower.ffxi.get_info().zone
+
+    if(S{Constants.TemenosZoneId, Constants.ApollyonZoneId}:contains(zoneId) == false)then
+        return
+    end
+
     local packet = packets.parse('incoming', data)
 
-    if(S{40003, 40011}:contains(packet["Message ID"]))then
+    if(S{self["TemenosMessageId"], self["ApollyonMessageId"]}:contains(bit.band(packet["Message ID"], 0x3FFF)))then
         local pointsGained = packet["Param 1"] or 0
         self["PointsThisHour"] = self["PointsThisHour"] + pointsGained
 
@@ -214,6 +249,8 @@ local function HasTempItem(inventory, itemId)
 end
 
 windower.register_event('load', function()
+    LimbusBuddy:AcquireMessageIds()
+
     LimbusBuddy["TextDisplay"]:show()
     LimbusBuddy["TextDisplay"]:text(Constants.TextFormatString)
 
